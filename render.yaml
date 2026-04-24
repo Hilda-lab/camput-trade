@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: campus-trade-web
+    runtime: go
+    plan: free
+    buildCommand: go mod tidy && go build -o app ./cmd/server
+    startCommand: ./app
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: DATABASE_URL
+        sync: false

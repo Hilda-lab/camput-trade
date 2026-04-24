@@ -1,0 +1,28 @@
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Go build artifacts
+bin/
+dist/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Coverage and profiling
+coverage.out
+*.coverprofile
+*.pprof
+
+# Logs
+*.log
+
+# IDE and OS files
+.vscode/*.code-workspace
+.DS_Store
+Thumbs.db
