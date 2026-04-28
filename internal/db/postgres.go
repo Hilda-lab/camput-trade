@@ -2,13 +2,14 @@ package db
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	_ "github.com/go-sql-driver/mysql"
 )
 
-func Connect(databaseURL string) (*pgxpool.Pool, error) {
+func Connect(databaseURL string) (*sql.DB, error) {
 	if databaseURL == "" {
 		return nil, errors.New("DATABASE_URL is empty")
 	}
@@ -16,13 +17,13 @@ func Connect(databaseURL string) (*pgxpool.Pool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	pool, err := pgxpool.New(ctx, databaseURL)
+	db, err := sql.Open("mysql", databaseURL)
 	if err != nil {
 		return nil, err
 	}
-	if err := pool.Ping(ctx); err != nil {
-		pool.Close()
+	if err := db.PingContext(ctx); err != nil {
+		db.Close()
 		return nil, err
 	}
-	return pool, nil
+	return db, nil
 }

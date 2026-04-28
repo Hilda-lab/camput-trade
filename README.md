@@ -1,10 +1,10 @@
-# Campus Trade (Go + Gin + PostgreSQL)
+# Campus Trade (Go + Gin + MySQL)
 
 校园二手交易平台数据库课程作业骨架项目。
 
 ## 技术栈
 - Go + Gin
-- PostgreSQL
+- MySQL
 - HTML Template + Bootstrap
 - Render 部署
 
@@ -48,7 +48,7 @@
 2. Render 新建 Web Service，连接仓库
 3. 使用 `render.yaml` 自动配置
 4. 在 Render 设置环境变量：
-   - `DATABASE_URL`（指向 Render Postgres）
+   - `DATABASE_URL`（指向外部 MySQL）
    - `PORT`（默认可用 10000）
 5. 部署完成后获得可访问公网 URL
 
@@ -60,5 +60,5 @@
   - 两人同时购买同一商品会产生竞争
   - 通过事务 + `FOR UPDATE` 行锁 + `orders.item_id` 唯一约束防止重复下单
 - 恢复：
-  - 依赖 PostgreSQL WAL 与定时备份
+- 依赖 MySQL 的事务日志与定时备份
   - 故障后可通过备份 + 日志回放恢复订单数据

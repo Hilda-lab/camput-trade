@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"net/http"
 	"strings"
@@ -10,15 +11,13 @@ import (
 	"campus-trade/internal/service"
 
 	"github.com/gin-gonic/gin"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Handler struct {
-	db *pgxpool.Pool
+	db *sql.DB
 }
 
-func New(db *pgxpool.Pool) *Handler {
+func New(db *sql.DB) *Handler {
 	return &Handler{db: db}
 }
 
@@ -132,7 +131,7 @@ func (h *Handler) CreateItem(c *gin.Context) {
 	sellerID := strings.TrimSpace(c.PostForm("seller_id"))
 	price := c.PostForm("price")
 
-	_, err := h.db.Exec(c.Request.Context(), "INSERT INTO item (item_id, item_name, category, price, seller_id, status, created_at) VALUES ($1, $2, $3, $4, $5, 0, NOW())", id, name, category, price, sellerID)
+	_, err := h.db.ExecContext(c.Request.Context(), "INSERT INTO item (item_id, item_name, category, price, seller_id, status, created_at) VALUES (?, ?, ?, ?, ?, 0, NOW())", id, name, category, price, sellerID)
 	if err != nil {
 		c.String(http.StatusBadRequest, "create item failed: %v", err)
 		return
@@ -154,7 +153,7 @@ func (h *Handler) UpdateItemPrice(c *gin.Context) {
 		return
 	}
 	price := c.PostForm("price")
-	_, err := h.db.Exec(c.Request.Context(), "UPDATE item SET price = $1 WHERE item_id = $2", price, itemID)
+	_, err := h.db.ExecContext(c.Request.Context(), "UPDATE item SET price = ? WHERE item_id = ?", price, itemID)
 	if err != nil {
 		c.String(http.StatusBadRequest, "update item price failed: %v", err)
 		return
@@ -175,7 +174,7 @@ func (h *Handler) DeleteUnsoldItem(c *gin.Context) {
 		c.String(http.StatusBadRequest, "item_id is required")
 		return
 	}
-	_, err := h.db.Exec(c.Request.Context(), "DELETE FROM item WHERE item_id = $1 AND status = 0", itemID)
+	_, err := h.db.ExecContext(c.Request.Context(), "DELETE FROM item WHERE item_id = ? AND status = 0", itemID)
 	if err != nil {
 		c.String(http.StatusBadRequest, "delete unsold item failed: %v", err)
 		return
@@ -199,7 +198,7 @@ func (h *Handler) queryRows(target *[]map[string]any, sql string) string {
 	if h.db == nil {
 		return "DATABASE_URL 未配置，当前仅展示页面骨架。"
 	}
-	rows, err := h.db.Query(context.Background(), sql)
+	rows, err := h.db.QueryContext(context.Background(), sql)
 	if err != nil {
 		return "query failed: " + err.Error()
 	}
@@ -213,18 +212,26 @@ func (h *Handler) queryRows(target *[]map[string]any, sql string) string {
 	return ""
 }
 
-func rowsToMap(rows pgx.Rows) ([]map[string]any, error) {
-	fields := rows.FieldDescriptions()
+func rowsToMap(rows *sql.Rows) ([]map[string]any, error) {
+	fields, err := rows.Columns()
+	if err != nil {
+		return nil, err
+	}
 	items := make([]map[string]any, 0)
 
+	values := make([]any, len(fields))
+	valuePtrs := make([]any, len(fields))
+	for i := range values {
+		valuePtrs[i] = &values[i]
+	}
+
 	for rows.Next() {
-		vals, err := rows.Values()
-		if err != nil {
+		if err := rows.Scan(valuePtrs...); err != nil {
 			return nil, err
 		}
 		line := make(map[string]any, len(fields))
-		for i, f := range fields {
-			line[string(f.Name)] = vals[i]
+		for i, field := range fields {
+			line[field] = normalizeValue(values[i])
 		}
 		items = append(items, line)
 	}
@@ -234,4 +241,15 @@ func rowsToMap(rows pgx.Rows) ([]map[string]any, error) {
 	}
 
 	return items, nil
+}
+
+func normalizeValue(value any) any {
+	switch v := value.(type) {
+	case []byte:
+		return string(v)
+	case time.Time:
+		return v.Format("2006-01-02 15:04:05")
+	default:
+		return v
+	}
 }

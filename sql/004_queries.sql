@@ -43,7 +43,7 @@ GROUP BY category
 ORDER BY item_count DESC;
 
 -- 3) 平均价格
-SELECT AVG(price) AS avg_price FROM item;
+SELECT ROUND(AVG(price), 2) AS avg_price FROM item;
 
 -- 4) 发布商品数量最多的用户
 SELECT u.user_id, u.user_name, COUNT(i.item_id) AS published_count
