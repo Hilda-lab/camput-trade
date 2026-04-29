@@ -35,16 +35,7 @@
   <h1 class="h4 mb-3">订单列表</h1>
   {{if .message}}<div class="alert alert-warning">{{.message}}</div>{{end}}
 
-  <div class="card card-body mb-3">
-    <h2 class="h6">购买商品（事务）</h2>
-    <form method="post" action="/purchase" class="row g-2">
-      <div class="col-12 col-md-4"><input name="item_id" class="form-control form-control-sm" placeholder="item_id" required></div>
-      <div class="col-12 col-md-4"><input name="buyer_id" class="form-control form-control-sm" placeholder="buyer_id" required></div>
-      <div class="col-12 col-md-4"><button class="btn btn-sm btn-primary w-100" type="submit">立即购买</button></div>
-    </form>
-  </div>
-
-  <table class="table table-striped table-sm">
+  <table class="table table-striped table-sm mt-4">
     <thead><tr><th>订单ID</th><th>商品ID</th><th>商品名</th><th>买家ID</th><th>买家名</th><th>日期</th></tr></thead>
     <tbody>
     {{range .rows}}

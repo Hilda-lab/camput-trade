@@ -41,6 +41,11 @@ func main() {
         
         r.GET("/", h.Home)
         r.GET("/items", h.Items)
+        r.POST("/items", h.CreateItem)
+        r.POST("/items/manual/price", h.UpdateItemPrice)
+        r.POST("/items/manual/delete", h.DeleteUnsoldItem)
+        r.POST("/purchase", h.Purchase)
+        
         r.GET("/users", h.Users)
         r.GET("/orders", h.Orders)
         r.GET("/reports", h.Reports)

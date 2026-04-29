@@ -199,26 +199,89 @@ func (h *Handler) Users(c *gin.Context) {
 
 func (h *Handler) Items(c *gin.Context) {
 	queryType := c.Query("q")
-	sql := "SELECT item_id, item_name, category, price, seller_id, status FROM item ORDER BY item_id"
+	queryMinPrice := c.Query("min_price")
+	queryMaxPrice := c.Query("max_price")
+	queryCategory := c.Query("category")
+	querySeller := c.Query("seller")
 
-	switch queryType {
-	case "unsold":
-		sql = "SELECT item_id, item_name, category, price, seller_id, status FROM item WHERE status = 0 ORDER BY item_id"
-	case "price_gt_30":
-		sql = "SELECT item_id, item_name, category, price, seller_id, status FROM item WHERE price > 30 ORDER BY item_id"
-	case "daily":
-		sql = "SELECT item_id, item_name, category, price, seller_id, status FROM item WHERE category = '生活用品' ORDER BY item_id"
-	case "seller_u001":
-		sql = "SELECT item_id, item_name, category, price, seller_id, status FROM item WHERE seller_id = 'u001' ORDER BY item_id"
+	qContext := "SELECT item_id, item_name, category, price, seller_id, status FROM item"
+	var conditions []string
+	var args []any
+
+	if queryType == "unsold" {
+		conditions = append(conditions, "status = 0")
 	}
 
+	if queryMinPrice != "" {
+		conditions = append(conditions, "price >= ?")
+		args = append(args, queryMinPrice)
+	}
+
+	if queryMaxPrice != "" {
+		conditions = append(conditions, "price <= ?")
+		args = append(args, queryMaxPrice)
+	}
+
+	if queryCategory != "" {
+		conditions = append(conditions, "category LIKE ?")
+		args = append(args, "%"+queryCategory+"%")
+	}
+
+	if querySeller != "" {
+		conditions = append(conditions, "seller_id = ?")
+		args = append(args, querySeller)
+	}
+
+	if len(conditions) > 0 {
+		qContext += " WHERE " + strings.Join(conditions, " AND ")
+	}
+	qContext += " ORDER BY item_id DESC"
+
 	rows := []map[string]any{}
-	message := h.queryRows(&rows, sql)
+	
+	var err error
+	var sqlRows *sql.Rows
+
+	if h.db != nil {
+		sqlRows, err = h.db.QueryContext(c.Request.Context(), qContext, args...)
+		if err == nil {
+			defer sqlRows.Close()
+			cols, _ := sqlRows.Columns()
+			for sqlRows.Next() {
+				colsMap := make([]any, len(cols))
+				colsVal := make([]any, len(cols))
+				for i := range colsMap {
+					colsVal[i] = &colsMap[i]
+				}
+				sqlRows.Scan(colsVal...)
+	
+				rowMap := make(map[string]any)
+				for i, col := range cols {
+					val := colsMap[i]
+					if b, ok := val.([]byte); ok {
+						rowMap[col] = string(b)
+					} else {
+						rowMap[col] = val
+					}
+				}
+				rows = append(rows, rowMap)
+			}
+		}
+	}
+
+	var message string
+	if err != nil {
+		message = "query failed: " + err.Error()
+	}
 
 	ctx := h.baseContext(c, "商品列表")
 	ctx["rows"] = rows
 	ctx["message"] = message
 	ctx["queryType"] = queryType
+	ctx["qMinPrice"] = queryMinPrice
+	ctx["qMaxPrice"] = queryMaxPrice
+	ctx["qCategory"] = queryCategory
+	ctx["qSeller"] = querySeller
 
 	c.HTML(http.StatusOK, "items.html", ctx)
 }
@@ -240,13 +303,18 @@ func (h *Handler) CreateItem(c *gin.Context) {
 		return
 	}
 
+	uid, _, loggedIn := h.getCurrentUser(c)
+	if !loggedIn {
+		c.String(http.StatusUnauthorized, "please login first")
+		return
+	}
+
 	id := strings.TrimSpace(c.PostForm("item_id"))
 	name := strings.TrimSpace(c.PostForm("item_name"))
 	category := strings.TrimSpace(c.PostForm("category"))
-	sellerID := strings.TrimSpace(c.PostForm("seller_id"))
 	price := c.PostForm("price")
 
-	_, err := h.db.ExecContext(c.Request.Context(), "INSERT INTO item (item_id, item_name, category, price, seller_id, status, created_at) VALUES (?, ?, ?, ?, ?, 0, NOW())", id, name, category, price, sellerID)
+	_, err := h.db.ExecContext(c.Request.Context(), "INSERT INTO item (item_id, item_name, category, price, seller_id, status, created_at) VALUES (?, ?, ?, ?, ?, 0, NOW())", id, name, category, price, uid)
 	if err != nil {
 		c.String(http.StatusBadRequest, "create item failed: %v", err)
 		return
@@ -259,16 +327,31 @@ func (h *Handler) UpdateItemPrice(c *gin.Context) {
 		c.String(http.StatusBadRequest, "database not connected")
 		return
 	}
+
+	uid, _, loggedIn := h.getCurrentUser(c)
+	if !loggedIn {
+		c.String(http.StatusUnauthorized, "please login first")
+		return
+	}
+
 	itemID := strings.TrimSpace(c.Param("id"))
-	if itemID == "manual" {
+	if itemID == "manual" || itemID == "" {
 		itemID = strings.TrimSpace(c.PostForm("item_id"))
 	}
 	if itemID == "" {
 		c.String(http.StatusBadRequest, "item_id is required")
 		return
 	}
+
+	var sellerID string
+	err := h.db.QueryRowContext(c.Request.Context(), "SELECT seller_id FROM item WHERE item_id = ?", itemID).Scan(&sellerID)
+	if err != nil || sellerID != uid {
+		c.String(http.StatusForbidden, "unauthorized: you are not the seller of this item")
+		return
+	}
+
 	price := c.PostForm("price")
-	_, err := h.db.ExecContext(c.Request.Context(), "UPDATE item SET price = ? WHERE item_id = ?", price, itemID)
+	_, err = h.db.ExecContext(c.Request.Context(), "UPDATE item SET price = ? WHERE item_id = ?", price, itemID)
 	if err != nil {
 		c.String(http.StatusBadRequest, "update item price failed: %v", err)
 		return
@@ -281,15 +364,30 @@ func (h *Handler) DeleteUnsoldItem(c *gin.Context) {
 		c.String(http.StatusBadRequest, "database not connected")
 		return
 	}
+
+	uid, _, loggedIn := h.getCurrentUser(c)
+	if !loggedIn {
+		c.String(http.StatusUnauthorized, "please login first")
+		return
+	}
+
 	itemID := strings.TrimSpace(c.Param("id"))
-	if itemID == "manual" {
+	if itemID == "manual" || itemID == "" {
 		itemID = strings.TrimSpace(c.PostForm("item_id"))
 	}
 	if itemID == "" {
 		c.String(http.StatusBadRequest, "item_id is required")
 		return
 	}
-	_, err := h.db.ExecContext(c.Request.Context(), "DELETE FROM item WHERE item_id = ? AND status = 0", itemID)
+
+	var sellerID string
+	err := h.db.QueryRowContext(c.Request.Context(), "SELECT seller_id FROM item WHERE item_id = ?", itemID).Scan(&sellerID)
+	if err != nil || sellerID != uid {
+		c.String(http.StatusForbidden, "unauthorized: you are not the seller of this item")
+		return
+	}
+
+	_, err = h.db.ExecContext(c.Request.Context(), "DELETE FROM item WHERE item_id = ? AND status = 0", itemID)
 	if err != nil {
 		c.String(http.StatusBadRequest, "delete unsold item failed: %v", err)
 		return
@@ -298,11 +396,32 @@ func (h *Handler) DeleteUnsoldItem(c *gin.Context) {
 }
 
 func (h *Handler) Purchase(c *gin.Context) {
-	orderID := fmt.Sprintf("o%s", time.Now().Format("20060102150405"))
-	itemID := c.PostForm("item_id")
-	buyerID := c.PostForm("buyer_id")
+	uid, _, loggedIn := h.getCurrentUser(c)
+	if !loggedIn {
+		c.String(http.StatusUnauthorized, "please login first")
+		return
+	}
 
-	if err := service.PurchaseItem(h.db, orderID, itemID, buyerID); err != nil {
+	itemID := c.PostForm("item_id")
+	if itemID == "" {
+		c.String(http.StatusBadRequest, "item_id is required")
+		return
+	}
+
+	var sellerID string
+	err := h.db.QueryRowContext(c.Request.Context(), "SELECT seller_id FROM item WHERE item_id = ?", itemID).Scan(&sellerID)
+	if err != nil {
+		c.String(http.StatusBadRequest, "item not found")
+		return
+	}
+	if sellerID == uid {
+		c.String(http.StatusForbidden, "you cannot purchase your own item")
+		return
+	}
+
+	orderID := fmt.Sprintf("o%s", time.Now().Format("20060102150405"))
+	
+	if err := service.PurchaseItem(h.db, orderID, itemID, uid); err != nil {
 		c.String(http.StatusBadRequest, "purchase failed: %v", err)
 		return
 	}
