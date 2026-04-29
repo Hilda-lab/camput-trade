@@ -10,6 +10,7 @@ import (
 
 	"campus-trade/internal/service"
 
+	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
 )
 
@@ -21,8 +22,105 @@ func New(db *sql.DB) *Handler {
 	return &Handler{db: db}
 }
 
+// getCurrentUser returns user_id, user_name, true if logged in, else "", "", false
+func (h *Handler) getCurrentUser(c *gin.Context) (string, string, bool) {
+	session := sessions.Default(c)
+	uid := session.Get("user_id")
+	uname := session.Get("user_name")
+	if uid != nil && uname != nil {
+		return uid.(string), uname.(string), true
+	}
+	return "", "", false
+}
+
+func (h *Handler) LoginForm(c *gin.Context) {
+	c.HTML(http.StatusOK, "login.html", gin.H{
+		"title": "用户登录",
+	})
+}
+
+func (h *Handler) Login(c *gin.Context) {
+	email := c.PostForm("email")
+	password := c.PostForm("password")
+	if email == "" || password == "" {
+		c.HTML(http.StatusBadRequest, "login.html", gin.H{"error": "账号或密码不能为空", "title": "登录"})
+		return
+	}
+
+	var userID, userName string
+	err := h.db.QueryRowContext(context.Background(), "SELECT user_id, user_name FROM app_user WHERE (email = ? OR user_id = ?) AND password = ?", email, email, password).Scan(&userID, &userName)
+	if err != nil {
+		c.HTML(http.StatusUnauthorized, "login.html", gin.H{"error": "账号或密码错误", "title": "登录"})
+		return
+	}
+
+	session := sessions.Default(c)
+	session.Set("user_id", userID)
+	session.Set("user_name", userName)
+	session.Save()
+
+	c.Redirect(http.StatusFound, "/")
+}
+
+func (h *Handler) RegisterForm(c *gin.Context) {
+	c.HTML(http.StatusOK, "register.html", gin.H{
+		"title": "用户注册",
+	})
+}
+
+func (h *Handler) Register(c *gin.Context) {
+	userName := strings.TrimSpace(c.PostForm("user_name"))
+	email := strings.TrimSpace(c.PostForm("email"))
+	password := c.PostForm("password")
+
+	if userName == "" || email == "" || password == "" {
+		c.HTML(http.StatusBadRequest, "register.html", gin.H{"error": "请填写所有必填字段", "title": "注册"})
+		return
+	}
+
+	var count int
+	h.db.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM app_user WHERE email = ?", email).Scan(&count)
+	if count > 0 {
+		c.HTML(http.StatusBadRequest, "register.html", gin.H{"error": "该邮箱已被注册", "title": "注册"})
+		return
+	}
+
+	userID := fmt.Sprintf("u%d", time.Now().Unix())
+	
+	_, err := h.db.ExecContext(context.Background(), "INSERT INTO app_user (user_id, user_name, email, password) VALUES (?, ?, ?, ?)", userID, userName, email, password)
+	if err != nil {
+		c.HTML(http.StatusInternalServerError, "register.html", gin.H{"error": "注册失败，请稍后再试", "title": "注册"})
+		return
+	}
+
+	session := sessions.Default(c)
+	session.Set("user_id", userID)
+	session.Set("user_name", userName)
+	session.Save()
+
+	c.Redirect(http.StatusFound, "/")
+}
+
+func (h *Handler) Logout(c *gin.Context) {
+	session := sessions.Default(c)
+	session.Clear()
+	session.Save()
+	c.Redirect(http.StatusFound, "/")
+}
+
+// baseContext returns a gin.H with common parameters for all views
+func (h *Handler) baseContext(c *gin.Context, title string) gin.H {
+	uid, uname, loggedIn := h.getCurrentUser(c)
+	return gin.H{
+		"title":     title,
+		"user_id":   uid,
+		"user_name": uname,
+		"loggedIn":  loggedIn,
+	}
+}
+
 func (h *Handler) Home(c *gin.Context) {
-	c.HTML(http.StatusOK, "home.html", gin.H{"title": "校园二手交易平台"})
+	c.HTML(http.StatusOK, "home.html", h.baseContext(c, "校园二手交易平台"))
 }
 
 func (h *Handler) Reports(c *gin.Context) {
@@ -78,19 +176,25 @@ func (h *Handler) Reports(c *gin.Context) {
 
 	rows := []map[string]any{}
 	message := h.queryRows(&rows, selected.SQL)
-	c.HTML(http.StatusOK, "reports.html", gin.H{
-		"title":         "查询与统计",
-		"rows":          rows,
-		"message":       message,
-		"queryType":     q,
-		"selectedTitle": selected.Title,
-	})
+
+	ctx := h.baseContext(c, "查询与统计")
+	ctx["rows"] = rows
+	ctx["message"] = message
+	ctx["queryType"] = q
+	ctx["selectedTitle"] = selected.Title
+
+	c.HTML(http.StatusOK, "reports.html", ctx)
 }
 
 func (h *Handler) Users(c *gin.Context) {
 	rows := []map[string]any{}
 	message := h.queryRows(&rows, "SELECT user_id, user_name, email FROM app_user ORDER BY user_id")
-	c.HTML(http.StatusOK, "users.html", gin.H{"title": "用户列表", "rows": rows, "message": message})
+	
+	ctx := h.baseContext(c, "用户列表")
+	ctx["rows"] = rows
+	ctx["message"] = message
+
+	c.HTML(http.StatusOK, "users.html", ctx)
 }
 
 func (h *Handler) Items(c *gin.Context) {
@@ -110,13 +214,24 @@ func (h *Handler) Items(c *gin.Context) {
 
 	rows := []map[string]any{}
 	message := h.queryRows(&rows, sql)
-	c.HTML(http.StatusOK, "items.html", gin.H{"title": "商品列表", "rows": rows, "message": message, "queryType": queryType})
+
+	ctx := h.baseContext(c, "商品列表")
+	ctx["rows"] = rows
+	ctx["message"] = message
+	ctx["queryType"] = queryType
+
+	c.HTML(http.StatusOK, "items.html", ctx)
 }
 
 func (h *Handler) Orders(c *gin.Context) {
 	rows := []map[string]any{}
 	message := h.queryRows(&rows, "SELECT o.order_id, o.item_id, i.item_name, o.buyer_id, u.user_name AS buyer_name, o.order_date FROM orders o JOIN item i ON o.item_id = i.item_id JOIN app_user u ON o.buyer_id = u.user_id ORDER BY o.order_date DESC")
-	c.HTML(http.StatusOK, "orders.html", gin.H{"title": "订单列表", "rows": rows, "message": message})
+	
+	ctx := h.baseContext(c, "订单列表")
+	ctx["rows"] = rows
+	ctx["message"] = message
+
+	c.HTML(http.StatusOK, "orders.html", ctx)
 }
 
 func (h *Handler) CreateItem(c *gin.Context) {

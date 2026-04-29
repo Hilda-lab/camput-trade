@@ -8,44 +8,49 @@ import (
 	"campus-trade/internal/db"
 	"campus-trade/internal/handlers"
 
-	"github.com/gin-gonic/gin"
+        "github.com/gin-contrib/sessions"
+        "github.com/gin-contrib/sessions/cookie"
+        "github.com/gin-gonic/gin"
 )
 
 func main() {
-	cfg := config.Load()
+        cfg := config.Load()
 
-	pool, err := db.Connect(cfg.DatabaseURL)
-	if err != nil {
-		log.Printf("database not connected: %v", err)
-	}
-	if pool != nil {
-		defer pool.Close()
-	}
+        pool, err := db.Connect(cfg.DatabaseURL)
+        if err != nil {
+                log.Printf("database not connected: %v", err)
+        }
+        if pool != nil {
+                defer pool.Close()
+        }
 
-	r := gin.Default()
-	r.Static("/static", "./static")
-	r.LoadHTMLGlob("templates/*.html")
+        r := gin.Default()
+        
+        // Use cookie-based session
+        store := cookie.NewStore([]byte("secret"))
+        r.Use(sessions.Sessions("campus_session", store))
 
-	h := handlers.New(pool)
+        r.Static("/static", "./static")
+        r.LoadHTMLGlob("templates/*.html")
 
-	r.GET("/health", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "ok"})
-	})
-	r.GET("/", h.Home)
-	r.GET("/items", h.Items)
-	r.GET("/users", h.Users)
-	r.GET("/orders", h.Orders)
-	r.GET("/reports", h.Reports)
+        h := handlers.New(pool)
 
-	// Data operations required by the assignment.
-	r.POST("/items", h.CreateItem)
-	r.POST("/items/:id/price", h.UpdateItemPrice)
-	r.POST("/items/:id/delete", h.DeleteUnsoldItem)
-	r.POST("/items/manual/price", h.UpdateItemPrice)
-	r.POST("/items/manual/delete", h.DeleteUnsoldItem)
-	r.POST("/purchase", h.Purchase)
+        r.GET("/health", func(c *gin.Context) {
+                c.JSON(http.StatusOK, gin.H{"status": "ok"})
+        })
+        
+        r.GET("/", h.Home)
+        r.GET("/items", h.Items)
+        r.GET("/users", h.Users)
+        r.GET("/orders", h.Orders)
+        r.GET("/reports", h.Reports)
 
-	log.Printf("server listening on :%s", cfg.Port)
+        // Login routes
+        r.GET("/login", h.LoginForm)
+        r.POST("/login", h.Login)
+		r.GET("/register", h.RegisterForm)
+		r.POST("/register", h.Register)
+        r.GET("/logout", h.Logout)
 	if err := r.Run(":" + cfg.Port); err != nil {
 		log.Fatal(err)
 	}

@@ -1,18 +1,14 @@
-{{define "base"}}
-<!doctype html>
-<html lang="zh-CN">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{.title}}</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link href="/static/css/style.css" rel="stylesheet">
-</head>
-<body>
-<nav class="navbar navbar-expand-lg navbar-dark bg-dark">
-  <div class="container">
-    <a class="navbar-brand" href="/">校园二手交易平台</a>
-        <div class="collapse navbar-collapse">
+﻿package main
+
+import (
+"log"
+"os"
+"path/filepath"
+"regexp"
+)
+
+func main() {
+navStr := `    <div class="collapse navbar-collapse">
       <div class="navbar-nav me-auto">
         <a class="nav-link" href="/items">商品</a>
         <a class="nav-link" href="/users">用户</a>
@@ -31,10 +27,24 @@
       </div>
     </div>
   </div>
-</nav>
-<div class="container py-4">
-  {{template "content" .}}
-</div>
-</body>
-</html>
-{{end}}
+</nav>`
+
+rx := regexp.MustCompile(`(?s)<div class="navbar-nav[^>]*>.*?</nav>`)
+
+files, err := filepath.Glob("templates/*.html")
+if err != nil {
+log.Fatal(err)
+}
+
+for _, f := range files {
+content, err := os.ReadFile(f)
+if err != nil {
+log.Fatal(err)
+}
+newContent := rx.ReplaceAllString(string(content), navStr)
+if newContent != string(content) {
+os.WriteFile(f, []byte(newContent), 0644)
+log.Printf("Updated %s", f)
+}
+}
+}
