@@ -4,7 +4,8 @@ USE campus_trade;
 CREATE TABLE IF NOT EXISTS app_user (
     user_id VARCHAR(20) PRIMARY KEY,
     user_name VARCHAR(50) NOT NULL,
-    email VARCHAR(100) NOT NULL UNIQUE
+    email VARCHAR(100) NOT NULL UNIQUE,
+    password VARCHAR(100) NOT NULL DEFAULT ''
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS item (
