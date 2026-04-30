@@ -120,7 +120,7 @@ func (h *Handler) baseContext(c *gin.Context, title string) gin.H {
 }
 
 func (h *Handler) Home(c *gin.Context) {
-	c.HTML(http.StatusOK, "home.html", h.baseContext(c, "校园二手交易平台"))
+	c.Redirect(http.StatusFound, "/items")
 }
 
 func (h *Handler) Reports(c *gin.Context) {
@@ -305,7 +305,7 @@ func (h *Handler) CreateItem(c *gin.Context) {
 
 	uid, _, loggedIn := h.getCurrentUser(c)
 	if !loggedIn {
-		c.String(http.StatusUnauthorized, "please login first")
+		c.Redirect(http.StatusFound, "/login")
 		return
 	}
 
@@ -330,7 +330,7 @@ func (h *Handler) UpdateItemPrice(c *gin.Context) {
 
 	uid, _, loggedIn := h.getCurrentUser(c)
 	if !loggedIn {
-		c.String(http.StatusUnauthorized, "please login first")
+		c.Redirect(http.StatusFound, "/login")
 		return
 	}
 
@@ -367,7 +367,7 @@ func (h *Handler) DeleteUnsoldItem(c *gin.Context) {
 
 	uid, _, loggedIn := h.getCurrentUser(c)
 	if !loggedIn {
-		c.String(http.StatusUnauthorized, "please login first")
+		c.Redirect(http.StatusFound, "/login")
 		return
 	}
 
@@ -398,7 +398,7 @@ func (h *Handler) DeleteUnsoldItem(c *gin.Context) {
 func (h *Handler) Purchase(c *gin.Context) {
 	uid, _, loggedIn := h.getCurrentUser(c)
 	if !loggedIn {
-		c.String(http.StatusUnauthorized, "please login first")
+		c.Redirect(http.StatusFound, "/login")
 		return
 	}
 
